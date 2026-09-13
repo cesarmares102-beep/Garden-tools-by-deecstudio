@@ -648,34 +648,28 @@
   }
 
   /* ---------------------------------------------------------
-     Personalización — a scroll-driven presentation. .pv-pin sticks
-     in place via native CSS (position: sticky — see styles.css)
-     while the user scrolls through .pv-track's height; this only
-     reads scroll progress (0→1) to swap which of the 4 mockups and
-     which timeline step is active, in quarters. It never sets
-     position/top/pin styles itself, on purpose: an earlier version
-     used GSAP's pin (position: fixed + a spacer it manages), which
-     has to be re-measured by hand on every viewport change and
-     reproducibly broke — stuck fixed over the wrong section, or
-     transparent over whatever was behind it — when that
-     re-measurement ran at the wrong moment. Reading
-     getBoundingClientRect() fresh on every scroll/resize event has
-     no equivalent stale-cache failure mode: there's nothing to go
-     stale, because nothing is ever computed in advance.
+     Personalización — an automatic 4-stage cycle. Page scroll is
+     never touched: this only toggles which of the 4 mockups/timeline
+     steps is active, on a timer, while the section is on screen. An
+     earlier version pinned the section (position: sticky) for a
+     400vh scroll distance, one full scroll per stage — that read as
+     "the page ended here" to users who didn't expect 4 consecutive
+     scrolls in the same spot, so it was replaced with this
+     always-scrollable, self-playing version instead.
      --------------------------------------------------------- */
   function initPersonalizacion() {
     var track = $("[data-pv-track]");
-    var pin = $("[data-pv-pin]");
     if (!track) return;
 
     var mockups = $$("[data-pv-stage].pv-mockup");
     var steps = $$("[data-pv-stage].pv-step");
     var timeline = $("[data-pv-timeline]");
     var stages = ["generic", "business", "services", "final"];
+    var STAGE_MS = 3200;
 
     var current = -1;
     function setStage(index) {
-      index = Math.max(0, Math.min(stages.length - 1, index));
+      index = ((index % stages.length) + stages.length) % stages.length;
       if (index === current) return;
       current = index;
       var stage = stages[index];
@@ -698,35 +692,34 @@
       }
     }
 
-    function stageForProgress(progress) {
-      return Math.floor(progress * stages.length - 1e-6);
-    }
-
     setStage(0);
 
-    var ticking = false;
-    function update() {
-      ticking = false;
-      var rect = track.getBoundingClientRect();
-      // Progress is measured against how long .pv-pin is actually
-      // stuck for (track height minus the pin's own real height),
-      // not the viewport height. The pin's content is shorter than
-      // the viewport on most screens, so using viewport height here
-      // made progress reach 1 before the pin had actually released —
-      // stage stayed on "final" while the pin was already gone,
-      // through a stretch of scroll with nothing to show for it.
-      var pinHeight = pin ? pin.getBoundingClientRect().height : window.innerHeight;
-      var total = rect.height - pinHeight;
-      var progress = total <= 0 ? 0 : Math.max(0, Math.min(1, -rect.top / total));
-      setStage(stageForProgress(progress));
+    // Auto-playing, looping, indefinitely-repeating motion is exactly
+    // what prefers-reduced-motion asks sites to avoid — respect it by
+    // leaving the section on its first stage instead of cycling.
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    var timer = null;
+    function start() {
+      if (timer) return;
+      timer = setInterval(function () { setStage(current + 1); }, STAGE_MS);
     }
-    window.addEventListener("scroll", function () {
-      if (ticking) return;
-      ticking = true;
-      requestAnimationFrame(update);
-    }, { passive: true });
-    window.addEventListener("resize", update);
-    update();
+    function stop() {
+      if (!timer) return;
+      clearInterval(timer);
+      timer = null;
+    }
+
+    if ("IntersectionObserver" in window) {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) start(); else stop();
+        });
+      }, { threshold: 0.35 });
+      io.observe(track);
+    } else {
+      start();
+    }
   }
 
   /* ---------------------------------------------------------

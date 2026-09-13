@@ -5,7 +5,7 @@
 # CSP is built only from what this project actually loads:
 # - its own JS/CSS/images (self);
 # - Fontshare + Google Fonts for type;
-# - the Whop checkout widget (script + the iframe it mounts).
+# - Whop's hosted checkout (embedded as an iframe from whop.com).
 # No other third party is allowed. No unsafe-eval.
 #
 # style-src keeps 'unsafe-inline' because main.js sets element.style
@@ -13,35 +13,34 @@
 # scroll transform, modal open/close, --nav-h/--cta-bar-h custom
 # properties). Removing it would mean rewriting those to toggle
 # pre-defined CSS classes instead — a real refactor, not a header
-# change — so it stays as a documented, scoped exception. script-src
-# has no such exception: the one inline script was already externalized
-# to lib/checkout-init.js specifically so script-src doesn't need it.
+# change — so it stays as a documented, scoped exception.
 #
 # font-src includes both api.fontshare.com (serves the @font-face CSS)
 # and cdn.fontshare.com (serves the actual .woff2/.woff/.ttf files the
 # CSS points to) — confirmed via a live deploy; the CSS-only domain
 # alone silently blocks every font file.
 #
-# Permissions-Policy: payment is scoped to (self "https://js.whop.cloud"),
-# not just (self) — the Whop checkout widget runs in a cross-origin
-# iframe from that domain, and (self) alone denies the "payment"
-# permission to any cross-origin frame regardless of that iframe's own
-# allow="payment" attribute (the top document's Permissions-Policy is
-# the ceiling; a child frame can only narrow it, never exceed it).
-# Confirmed live: this was silently hiding both Apple Pay and Google
-# Pay inside the embedded checkout (cards still worked, since that
-# doesn't use the Payment Request API this permission gates).
+# Checkout: the widget used to be Whop's "Elements" JS
+# (js.whop.cloud), mounted directly on our own origin — Apple Pay
+# worked there once our domain was verified with Apple, but Google Pay
+# never showed, because Google Pay approval is scoped to whop.com
+# itself, not to our origin, and there's no self-service way to add a
+# third-party origin to it. Switching the modal to embed Whop's own
+# hosted checkout (https://whop.com/checkout/...) in an iframe means
+# the wallet buttons run on the origin that's already approved for
+# both, so no script-src/connect-src exception for Whop is needed
+# anymore — only frame-src (to embed the iframe) and Permissions-Policy
+# (to let that iframe use the Payment Request API for Apple/Google Pay).
 #
 # IMPORTANT: test the "Comprar ahora" checkout flow once this is live.
-# If the Whop widget fails silently, open devtools → Console for a CSP
-# violation naming the blocked domain/directive (most likely connect-src,
-# for whatever API host Whop's SDK calls at runtime) and add only that.
+# If it fails silently, open devtools → Console for a CSP violation
+# naming the blocked domain/directive and add only that.
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: SAMEORIGIN
-  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(self "https://js.whop.cloud")
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://js.whop.cloud; style-src 'self' 'unsafe-inline' https://api.fontshare.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com https://api.fontshare.com https://cdn.fontshare.com; img-src 'self' data:; frame-src https://js.whop.cloud; connect-src 'self' https://js.whop.cloud; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; object-src 'none'
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(self "https://whop.com")
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://api.fontshare.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com https://api.fontshare.com https://cdn.fontshare.com; img-src 'self' data:; frame-src https://whop.com; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; object-src 'none'
   Strict-Transport-Security: max-age=31536000; includeSubDomains
 
 # HTML: always revalidate so a deploy is never masked by a stale cached page.

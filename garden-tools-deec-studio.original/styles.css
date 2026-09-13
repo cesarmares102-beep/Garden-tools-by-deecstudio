@@ -1193,32 +1193,26 @@ em { font-style: normal; color: var(--moss); font-weight: inherit; }
   .steps-dot.is-active { background: var(--moss); transform: scale(1.3); }
 }
 
-/* Personalización — scroll-driven presentation. .pv-pin sticks in
-   place (native CSS position: sticky, not a JS-computed pin) while
-   the user scrolls through .pv-track's height; main.js only reads
-   scroll progress to swap which of the 4 mockups / timeline steps
-   is active — it never repositions anything itself. An earlier
-   version used GSAP's pin (position: fixed + a JS-managed spacer),
-   which needs re-measuring by hand on every viewport change and
-   reproducibly went wrong when that happened mid-scroll (stuck
-   fixed over the wrong section, or over other page content showing
-   through gaps in it). Native sticky has no such failure mode: the
-   browser recomputes it on every reflow by itself, for free. */
+/* Personalización — an automatic 4-stage cycle, not a scroll-driven
+   stepper. .pv-track/.pv-pin are normal, static-height flow elements
+   (no position: sticky, no tall scroll-spacer track) — the section
+   takes up only as much height as its own content, and page scroll
+   is never intercepted. main.js runs a timer (paused via
+   IntersectionObserver while the section is off-screen) that swaps
+   which of the 4 mockups / timeline steps is active; it never reads
+   scroll position and never repositions anything. An earlier version
+   pinned this section for a 400vh scroll distance so each of the 4
+   states was one full scroll away — that read as "the page ended
+   here" to users who didn't expect 4 consecutive scrolls in the same
+   spot, so it was replaced with this always-scrollable, self-playing
+   version instead. */
 .custom { background: var(--bg-2); }
-.pv-track { position: relative; height: 400vh; height: 400svh; }
+.pv-track { position: relative; }
 .pv-pin {
-  position: sticky;
-  top: var(--nav-h);
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
   gap: clamp(1rem, 2.5vh, 2rem);
-  /* No min-height here on purpose — this box should hug its own
-     content (copy + mockup + timeline), not stretch toward the
-     viewport height. Forcing it taller than its content left a
-     block of empty (but same-colored) background below the
-     timeline, still inside this sticky box, before the section
-     actually ended — read as "too much space" at the bottom. */
   padding-top: .75rem;
   padding-bottom: 1rem;
   box-sizing: border-box;

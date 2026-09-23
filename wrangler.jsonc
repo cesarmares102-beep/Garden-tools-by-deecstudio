@@ -3,7 +3,8 @@
   "compatibility_date": "2025-01-01",
 
   "vars": {
-    "META_DATASET_ID": "1118290030539871"
+    "META_DATASET_ID": "1118290030539871",
+    "META_TEST_EVENT_CODE": "TEST4122"
   },
 
   "main": "worker.js",

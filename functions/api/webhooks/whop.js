@@ -55,13 +55,51 @@ function timingSafeEqual(a, b) {
   return diff === 0;
 }
 
-async function computeSvixSignatureBase64(secret, webhookId, webhookTimestamp, rawBody) {
-  const secretB64 = secret.startsWith("whsec_") ? secret.slice("whsec_".length) : secret;
-  const secretBytes = base64ToBytes(secretB64);
-  const signedContent = `${webhookId}.${webhookTimestamp}.${rawBody}`;
-  const key = await crypto.subtle.importKey("raw", secretBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signedContent));
+async function hmacSha256Base64(keyBytes, message) {
+  const key = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
   return bytesToBase64(new Uint8Array(mac));
+}
+
+// DEBUG (temporary) — we don't yet know for certain (a) whether the
+// "ws_" prefix should be stripped before treating the rest as the
+// key, (b) whether the key bytes come from base64-decoding that
+// remainder or using it as raw UTF-8 bytes, or (c) whether the signed
+// content is Svix's "id.timestamp.body" or just the raw body alone.
+// This tries every combination and returns whichever one matches the
+// signature Whop actually sent, so we only need ONE more real
+// delivery to nail it down — then this whole function collapses back
+// down to the single winning combination and stops trying the rest.
+async function findMatchingSignature(secret, webhookId, webhookTimestamp, rawBody, providedSigBase64) {
+  const secretStripped = secret.replace(/^(ws_|whsec_)/, "");
+  const keyCandidates = [
+    { label: "base64-decoded (prefix stripped)", bytes: safeBase64ToBytes(secretStripped) },
+    { label: "raw UTF-8 bytes (prefix stripped)", bytes: new TextEncoder().encode(secretStripped) },
+    { label: "raw UTF-8 bytes (full secret incl. prefix)", bytes: new TextEncoder().encode(secret) },
+  ].filter((c) => c.bytes);
+
+  const contentCandidates = [
+    { label: "id.timestamp.body", value: `${webhookId}.${webhookTimestamp}.${rawBody}` },
+    { label: "body only", value: rawBody },
+  ];
+
+  for (const key of keyCandidates) {
+    for (const content of contentCandidates) {
+      const candidateSig = await hmacSha256Base64(key.bytes, content.value);
+      if (candidateSig.length === providedSigBase64.length && timingSafeEqual(candidateSig, providedSigBase64)) {
+        return { matched: true, keyLabel: key.label, contentLabel: content.label };
+      }
+    }
+  }
+  return { matched: false };
+}
+
+function safeBase64ToBytes(base64) {
+  try {
+    return base64ToBytes(base64);
+  } catch (err) {
+    return null; // not valid base64 — skip this candidate
+  }
 }
 
 export async function handleWhopWebhook(request, env, ctx) {
@@ -102,23 +140,38 @@ export async function handleWhopWebhook(request, env, ctx) {
   // bytes Whop/Svix signed, before any JSON parsing.
   const rawBody = await request.text();
 
-  const expectedSigBase64 = await computeSvixSignatureBase64(env.WHOP_WEBHOOK_SECRET, webhookId, webhookTimestamp, rawBody);
-
   // webhook-signature can carry multiple space-separated "v1,<sig>"
-  // values (key rotation) — valid if ANY one matches.
-  const providedSignatures = webhookSignatureHeader.split(" ").map((s) => s.trim()).filter(Boolean);
+  // values (key rotation) — try the DEBUG multi-candidate matcher
+  // against each provided signature value.
+  const providedSignatures = webhookSignatureHeader
+    .split(" ")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const commaIndex = entry.indexOf(",");
+      return commaIndex === -1 ? null : { version: entry.slice(0, commaIndex), sig: entry.slice(commaIndex + 1) };
+    })
+    .filter((e) => e && e.version === "v1");
+
   let signatureValid = false;
-  for (const entry of providedSignatures) {
-    const commaIndex = entry.indexOf(",");
-    if (commaIndex === -1) continue;
-    const version = entry.slice(0, commaIndex);
-    const sigValue = entry.slice(commaIndex + 1);
-    if (version === "v1" && sigValue.length === expectedSigBase64.length && timingSafeEqual(sigValue, expectedSigBase64)) {
+  for (const { sig } of providedSignatures) {
+    const result = await findMatchingSignature(env.WHOP_WEBHOOK_SECRET, webhookId, webhookTimestamp, rawBody, sig);
+    if (result.matched) {
       signatureValid = true;
+      // DEBUG (temporary) — this tells us exactly which interpretation
+      // is correct. Once confirmed, collapse findMatchingSignature back
+      // down to just this one combination and remove this log.
+      console.log(`Whop signature MATCHED using key="${result.keyLabel}" content="${result.contentLabel}" — hardcode this combination and remove the DEBUG multi-candidate matcher.`);
       break;
     }
   }
   if (!signatureValid) {
+    // DEBUG (temporary) — log the body even on a failed signature so
+    // one test round trip confirms both the signature scheme AND the
+    // JSON field names at once. Remove alongside the rest of the
+    // DEBUG code once both are confirmed.
+    console.log("Whop signature did NOT match any candidate combination. Raw signature header:", webhookSignatureHeader);
+    console.log("Whop webhook body (DEBUG, unverified — signature didn't match):", rawBody);
     return new Response("Invalid signature", { status: 401 });
   }
 

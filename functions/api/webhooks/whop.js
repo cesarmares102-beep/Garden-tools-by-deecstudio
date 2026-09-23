@@ -162,12 +162,19 @@ export async function handleWhopWebhook(request, env, ctx) {
     ],
   };
 
-  // Only present when testing manually (see docs/test-webhook.js) — a
-  // real Whop payload never includes this, so it's a no-op in
-  // production. Lets a test Purchase show up under Events Manager →
-  // "Probar eventos" instead of mixing into real event data.
-  if (payload.test_event_code) {
-    capiPayload.test_event_code = String(payload.test_event_code);
+  // Test-event tagging — two sources, in priority order:
+  //  1. payload.test_event_code — only present when testing manually
+  //     via docs/test-webhook.js; a real Whop payload never sends this.
+  //  2. env.META_TEST_EVENT_CODE — an OPTIONAL Cloudflare variable you
+  //     can set temporarily while doing real Whop sandbox purchases,
+  //     so those real webhook calls also show up under Events Manager
+  //     → "Probar eventos" instead of mixing into real Purchase data.
+  //     Delete this variable once sandbox testing is done — leaving it
+  //     set would silently divert every REAL future Purchase into test
+  //     mode instead of counting it for real.
+  const testEventCode = payload.test_event_code || env.META_TEST_EVENT_CODE;
+  if (testEventCode) {
+    capiPayload.test_event_code = String(testEventCode);
   }
 
   const datasetId = env.META_DATASET_ID || DEFAULT_META_DATASET_ID;

@@ -24,7 +24,7 @@
 const SIGNATURE_HEADER = "x-whop-signature";
 const MAX_TIMESTAMP_SKEW_SECONDS = 5 * 60; // reject events older/newer than 5 minutes
 const META_GRAPH_VERSION = "v21.0"; // confirm this is still a supported version when you deploy
-const META_DATASET_ID = "1118290030539871";
+const DEFAULT_META_DATASET_ID = "1118290030539871"; // fallback if env.META_DATASET_ID isn't set
 
 async function hmacSha256Hex(secret, message) {
   const enc = new TextEncoder();
@@ -76,6 +76,8 @@ export async function handleWhopWebhook(request, env, ctx) {
     return new Response("Server misconfigured", { status: 500 });
   }
 
+  // Raw body first — signature verification MUST run against the
+  // exact bytes Whop signed, before any JSON parsing.
   const rawBody = await request.text();
   const receivedSignature = (request.headers.get(SIGNATURE_HEADER) || "").trim().toLowerCase();
 
@@ -95,14 +97,18 @@ export async function handleWhopWebhook(request, env, ctx) {
     return new Response("Invalid JSON", { status: 400 });
   }
 
+  // Whop's event-type field name varies by integration style in
+  // different docs versions — check the common variants defensively.
   const eventType = payload.type || payload.action || payload.event;
 
   const data = payload.data || {};
 
+  // Timestamp freshness check. Whop payloads generally carry a
+  // creation time on the event or on data — check both.
   const rawTimestamp = payload.created_at ?? payload.timestamp ?? data.created_at;
   if (rawTimestamp != null) {
     const eventSeconds = typeof rawTimestamp === "number"
-      ? (rawTimestamp > 1e12 ? rawTimestamp / 1000 : rawTimestamp)
+      ? (rawTimestamp > 1e12 ? rawTimestamp / 1000 : rawTimestamp) // accept ms or s
       : Date.parse(rawTimestamp) / 1000;
     const nowSeconds = Date.now() / 1000;
     if (!Number.isFinite(eventSeconds) || Math.abs(nowSeconds - eventSeconds) > MAX_TIMESTAMP_SKEW_SECONDS) {
@@ -111,6 +117,7 @@ export async function handleWhopWebhook(request, env, ctx) {
   }
 
   if (eventType !== "payment.succeeded") {
+    // Acknowledge so Whop doesn't retry — we simply don't act on it.
     return new Response("Ignored (not payment.succeeded)", { status: 200 });
   }
 
@@ -155,7 +162,8 @@ export async function handleWhopWebhook(request, env, ctx) {
     ],
   };
 
-  const metaUrl = `https://graph.facebook.com/${META_GRAPH_VERSION}/${META_DATASET_ID}/events?access_token=${encodeURIComponent(env.META_ACCESS_TOKEN)}`;
+  const datasetId = env.META_DATASET_ID || DEFAULT_META_DATASET_ID;
+  const metaUrl = `https://graph.facebook.com/${META_GRAPH_VERSION}/${datasetId}/events?access_token=${encodeURIComponent(env.META_ACCESS_TOKEN)}`;
 
   let metaResponse;
   try {
@@ -166,17 +174,20 @@ export async function handleWhopWebhook(request, env, ctx) {
     });
   } catch (err) {
     console.error("Meta CAPI request threw:", err);
+    // Return 5xx so Whop retries the webhook later — nothing was marked processed.
     return new Response("Meta CAPI request failed", { status: 502 });
   }
 
   if (!metaResponse.ok) {
     const errorText = await metaResponse.text();
     console.error("Meta CAPI error:", metaResponse.status, errorText);
+    // Do NOT mark as processed — allow Whop to retry the webhook.
     return new Response("Meta CAPI error", { status: 502 });
   }
 
+  // Only mark as processed after Meta confirms success.
   await env.WHOP_PURCHASES.put(kvKey, JSON.stringify({ processedAt: Date.now(), paymentId }), {
-    expirationTtl: 60 * 60 * 24 * 90,
+    expirationTtl: 60 * 60 * 24 * 90, // 90 days — plenty for dedup purposes
   });
 
   return new Response("OK", { status: 200 });

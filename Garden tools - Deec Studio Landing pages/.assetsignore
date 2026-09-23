@@ -1,0 +1,5 @@
+# Cloudflare Workers static assets ignore dotfiles/dot-folders by default
+# (.git, etc). .well-known must stay included — it's required for the
+# Apple Pay merchant domain-association file.
+!.well-known
+!.well-known/**

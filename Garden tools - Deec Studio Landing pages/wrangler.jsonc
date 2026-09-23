@@ -1,0 +1,16 @@
+{
+  "name": "garden-tools-by-deecstudio",
+  "compatibility_date": "2025-01-01",
+
+  "main": "worker.js",
+
+  "assets": {
+    "directory": "./Garden tools - Deec Studio Landing pages",
+    "not_found_handling": "404-page",
+    "binding": "ASSETS"
+  },
+
+  "kv_namespaces": [
+    { "binding": "WHOP_PURCHASES", "id": "2fc1861f8740468a9ecc494103121746" }
+  ]
+}

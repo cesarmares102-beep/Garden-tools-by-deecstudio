@@ -410,6 +410,11 @@
       modal.hidden = false;
       document.body.style.overflow = "hidden";
       requestAnimationFrame(function () { modal.classList.add("is-open"); });
+      // Real checkout intent — never fired on page load, never fired
+      // more than once per open(). Purchase is NOT fired from here or
+      // anywhere else in the frontend; it only comes from the
+      // server-side Whop webhook once payment.succeeded is confirmed.
+      if (typeof fbq === "function") fbq("track", "InitiateCheckout");
     }
     function close() {
       modal.classList.remove("is-open");

@@ -2,6 +2,10 @@
   "name": "garden-tools-by-deecstudio",
   "compatibility_date": "2025-01-01",
 
+  "vars": {
+    "META_DATASET_ID": "1118290030539871"
+  },
+
   "main": "worker.js",
 
   "assets": {

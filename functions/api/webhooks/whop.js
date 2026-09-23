@@ -1,38 +1,27 @@
 // GardenTools — Whop webhook → Meta Conversions API (Purchase).
 //
-// Whop's webhooks are delivered via Svix (confirmed from a real
-// delivery's headers — see the 3 headers read below). Svix's
-// signature scheme, not a generic single-header HMAC:
-//   https://docs.svix.com/receiving/verifying-payloads/how-manual
+// Confirmed against a real Whop sandbox delivery (2026-09-23):
 //
+// Signature (Svix-style headers, Whop-specific key handling):
 //   headers: webhook-id, webhook-timestamp, webhook-signature
 //   signed content = `${webhook-id}.${webhook-timestamp}.${rawBody}`
-//   secret = base64, usually prefixed "whsec_" — strip the prefix,
-//            base64-decode the rest, use as the raw HMAC key
-//   signature = base64(HMAC-SHA256(secretBytes, signedContent))
+//   key = the WHOP_WEBHOOK_SECRET string AS-IS (raw UTF-8 bytes,
+//         including its "ws_" prefix — NOT stripped, NOT base64-decoded;
+//         this is Whop's own convention, not standard Svix "whsec_")
+//   signature = base64(HMAC-SHA256(keyBytes, signedContent))
 //   webhook-signature header can hold multiple space-separated
-//   "v1,<base64sig>" values (for secret rotation) — a match on any
-//   one of them is valid.
+//   "v1,<base64sig>" values (key rotation) — a match on any one is valid.
 //
-// ⚠️ STILL TO CONFIRM — the JSON body's field names (event type,
-// data.id/settlement_amount/currency/email) are written from the
-// brief, not from an inspected real payload (Cloudflare's request
-// logging doesn't capture the body by default). There's a temporary
-// debug log below (search DEBUG) that prints the verified body to
-// Cloudflare's Observability logs — check it after the next sandbox
-// webhook fires, confirm the real field names, adjust if needed, then
-// remove that log line.
+// Payload shape (payment.succeeded), fields actually used here:
+//   payload.type              → "payment.succeeded"
+//   payload.data.id           → "pay_..."      (Purchase event_id)
+//   payload.data.settlement_amount → number    (Purchase value)
+//   payload.data.currency     → "usd" etc.     (Purchase currency, uppercased)
+//   payload.data.user.email   → buyer's email  (hashed into user_data.em)
 
 const MAX_TIMESTAMP_SKEW_SECONDS = 5 * 60; // Svix's own recommended tolerance
 const META_GRAPH_VERSION = "v21.0"; // confirm this is still a supported version when you deploy
 const DEFAULT_META_DATASET_ID = "1118290030539871"; // fallback if env.META_DATASET_ID isn't set
-
-function base64ToBytes(base64) {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
 
 function bytesToBase64(bytes) {
   let binary = "";
@@ -41,8 +30,7 @@ function bytesToBase64(bytes) {
 }
 
 async function sha256Hex(message) {
-  const enc = new TextEncoder();
-  const digest = await crypto.subtle.digest("SHA-256", enc.encode(message));
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(message));
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
@@ -55,51 +43,12 @@ function timingSafeEqual(a, b) {
   return diff === 0;
 }
 
-async function hmacSha256Base64(keyBytes, message) {
+async function computeWhopSignatureBase64(secret, webhookId, webhookTimestamp, rawBody) {
+  const keyBytes = new TextEncoder().encode(secret); // full secret, incl. "ws_" prefix, as raw bytes
+  const signedContent = `${webhookId}.${webhookTimestamp}.${rawBody}`;
   const key = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signedContent));
   return bytesToBase64(new Uint8Array(mac));
-}
-
-// DEBUG (temporary) — we don't yet know for certain (a) whether the
-// "ws_" prefix should be stripped before treating the rest as the
-// key, (b) whether the key bytes come from base64-decoding that
-// remainder or using it as raw UTF-8 bytes, or (c) whether the signed
-// content is Svix's "id.timestamp.body" or just the raw body alone.
-// This tries every combination and returns whichever one matches the
-// signature Whop actually sent, so we only need ONE more real
-// delivery to nail it down — then this whole function collapses back
-// down to the single winning combination and stops trying the rest.
-async function findMatchingSignature(secret, webhookId, webhookTimestamp, rawBody, providedSigBase64) {
-  const secretStripped = secret.replace(/^(ws_|whsec_)/, "");
-  const keyCandidates = [
-    { label: "base64-decoded (prefix stripped)", bytes: safeBase64ToBytes(secretStripped) },
-    { label: "raw UTF-8 bytes (prefix stripped)", bytes: new TextEncoder().encode(secretStripped) },
-    { label: "raw UTF-8 bytes (full secret incl. prefix)", bytes: new TextEncoder().encode(secret) },
-  ].filter((c) => c.bytes);
-
-  const contentCandidates = [
-    { label: "id.timestamp.body", value: `${webhookId}.${webhookTimestamp}.${rawBody}` },
-    { label: "body only", value: rawBody },
-  ];
-
-  for (const key of keyCandidates) {
-    for (const content of contentCandidates) {
-      const candidateSig = await hmacSha256Base64(key.bytes, content.value);
-      if (candidateSig.length === providedSigBase64.length && timingSafeEqual(candidateSig, providedSigBase64)) {
-        return { matched: true, keyLabel: key.label, contentLabel: content.label };
-      }
-    }
-  }
-  return { matched: false };
-}
-
-function safeBase64ToBytes(base64) {
-  try {
-    return base64ToBytes(base64);
-  } catch (err) {
-    return null; // not valid base64 — skip this candidate
-  }
 }
 
 export async function handleWhopWebhook(request, env, ctx) {
@@ -128,8 +77,7 @@ export async function handleWhopWebhook(request, env, ctx) {
     return new Response("Missing signature headers", { status: 401 });
   }
 
-  // Timestamp freshness — check BEFORE doing any HMAC work, using
-  // Svix's own header (not something inside the JSON body).
+  // Timestamp freshness — check before doing any HMAC work.
   const tsSeconds = parseInt(webhookTimestamp, 10);
   const nowSeconds = Math.floor(Date.now() / 1000);
   if (!Number.isFinite(tsSeconds) || Math.abs(nowSeconds - tsSeconds) > MAX_TIMESTAMP_SKEW_SECONDS) {
@@ -137,41 +85,25 @@ export async function handleWhopWebhook(request, env, ctx) {
   }
 
   // Raw body — signature verification MUST run against the exact
-  // bytes Whop/Svix signed, before any JSON parsing.
+  // bytes Whop signed, before any JSON parsing.
   const rawBody = await request.text();
+  const expectedSigBase64 = await computeWhopSignatureBase64(env.WHOP_WEBHOOK_SECRET, webhookId, webhookTimestamp, rawBody);
 
   // webhook-signature can carry multiple space-separated "v1,<sig>"
-  // values (key rotation) — try the DEBUG multi-candidate matcher
-  // against each provided signature value.
-  const providedSignatures = webhookSignatureHeader
-    .split(" ")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((entry) => {
-      const commaIndex = entry.indexOf(",");
-      return commaIndex === -1 ? null : { version: entry.slice(0, commaIndex), sig: entry.slice(commaIndex + 1) };
-    })
-    .filter((e) => e && e.version === "v1");
-
+  // values (key rotation) — valid if ANY one matches.
+  const providedSignatures = webhookSignatureHeader.split(" ").map((s) => s.trim()).filter(Boolean);
   let signatureValid = false;
-  for (const { sig } of providedSignatures) {
-    const result = await findMatchingSignature(env.WHOP_WEBHOOK_SECRET, webhookId, webhookTimestamp, rawBody, sig);
-    if (result.matched) {
+  for (const entry of providedSignatures) {
+    const commaIndex = entry.indexOf(",");
+    if (commaIndex === -1) continue;
+    const version = entry.slice(0, commaIndex);
+    const sigValue = entry.slice(commaIndex + 1);
+    if (version === "v1" && sigValue.length === expectedSigBase64.length && timingSafeEqual(sigValue, expectedSigBase64)) {
       signatureValid = true;
-      // DEBUG (temporary) — this tells us exactly which interpretation
-      // is correct. Once confirmed, collapse findMatchingSignature back
-      // down to just this one combination and remove this log.
-      console.log(`Whop signature MATCHED using key="${result.keyLabel}" content="${result.contentLabel}" — hardcode this combination and remove the DEBUG multi-candidate matcher.`);
       break;
     }
   }
   if (!signatureValid) {
-    // DEBUG (temporary) — log the body even on a failed signature so
-    // one test round trip confirms both the signature scheme AND the
-    // JSON field names at once. Remove alongside the rest of the
-    // DEBUG code once both are confirmed.
-    console.log("Whop signature did NOT match any candidate combination. Raw signature header:", webhookSignatureHeader);
-    console.log("Whop webhook body (DEBUG, unverified — signature didn't match):", rawBody);
     return new Response("Invalid signature", { status: 401 });
   }
 
@@ -182,25 +114,16 @@ export async function handleWhopWebhook(request, env, ctx) {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  // DEBUG (temporary) — once you confirm the real field names from
-  // this log in Cloudflare Observability, remove this line.
-  console.log("Whop webhook verified payload (DEBUG, remove after confirming field names):", rawBody);
-
-  // Whop's event-type field name — check the common variants
-  // defensively until confirmed from a real payload (see DEBUG log).
-  const eventType = payload.type || payload.action || payload.event;
-
-  const data = payload.data || {};
-
-  if (eventType !== "payment.succeeded") {
-    // Acknowledge so Whop/Svix doesn't retry — we simply don't act on it.
+  if (payload.type !== "payment.succeeded") {
+    // Acknowledge so Whop doesn't retry — we simply don't act on it.
     return new Response("Ignored (not payment.succeeded)", { status: 200 });
   }
 
+  const data = payload.data || {};
   const paymentId = data.id;
-  const amount = data.settlement_amount ?? data.amount;
+  const amount = data.settlement_amount;
   const currency = data.currency;
-  const buyerEmail = data.email || data.user_email || (data.customer && data.customer.email);
+  const buyerEmail = data.user && data.user.email;
 
   if (!paymentId || amount == null || !currency) {
     return new Response("Missing required payment fields (id/settlement_amount/currency)", { status: 400 });
@@ -214,15 +137,14 @@ export async function handleWhopWebhook(request, env, ctx) {
 
   const userData = {};
   if (buyerEmail) {
-    const normalizedEmail = String(buyerEmail).trim().toLowerCase();
-    userData.em = [await sha256Hex(normalizedEmail)];
+    userData.em = [await sha256Hex(String(buyerEmail).trim().toLowerCase())];
   }
 
   const capiPayload = {
     data: [
       {
         event_name: "Purchase",
-        event_time: tsSeconds, // Svix's own webhook-timestamp — authoritative, already validated above
+        event_time: tsSeconds, // Whop's own webhook-timestamp — authoritative, already validated above
         event_id: String(paymentId),
         action_source: "website",
         user_data: userData,
@@ -234,19 +156,15 @@ export async function handleWhopWebhook(request, env, ctx) {
     ],
   };
 
-  // Test-event tagging — two sources, in priority order:
-  //  1. payload.test_event_code — only present when testing manually
-  //     via docs/test-webhook.js; a real Whop payload never sends this.
-  //  2. env.META_TEST_EVENT_CODE — an OPTIONAL Cloudflare variable you
-  //     can set temporarily while doing real Whop sandbox purchases,
-  //     so those real webhook calls also show up under Events Manager
-  //     → "Probar eventos" instead of mixing into real Purchase data.
-  //     Delete this variable once sandbox testing is done — leaving it
-  //     set would silently divert every REAL future Purchase into test
-  //     mode instead of counting it for real.
-  const testEventCode = payload.test_event_code || env.META_TEST_EVENT_CODE;
-  if (testEventCode) {
-    capiPayload.test_event_code = String(testEventCode);
+  // Test-event tagging — TEMPORARY, for the Whop sandbox testing
+  // period only. env.META_TEST_EVENT_CODE (set on the Cloudflare
+  // dashboard) makes real sandbox purchases show up under Events
+  // Manager → "Probar eventos" instead of mixing into real event
+  // data. DELETE that Cloudflare variable once sandbox testing is
+  // done — leaving it set would divert every real future Purchase
+  // into test mode instead of counting it for real.
+  if (env.META_TEST_EVENT_CODE) {
+    capiPayload.test_event_code = String(env.META_TEST_EVENT_CODE);
   }
 
   const datasetId = env.META_DATASET_ID || DEFAULT_META_DATASET_ID;

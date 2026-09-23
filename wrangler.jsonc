@@ -1,0 +1,8 @@
+{
+  "name": "garden-tools-by-deecstudio",
+  "compatibility_date": "2025-01-01",
+  "assets": {
+    "directory": "./Garden tools - Deec Studio Landing pages",
+    "not_found_handling": "404-page"
+  }
+}

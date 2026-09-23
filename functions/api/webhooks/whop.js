@@ -162,6 +162,14 @@ export async function handleWhopWebhook(request, env, ctx) {
     ],
   };
 
+  // Only present when testing manually (see docs/test-webhook.js) — a
+  // real Whop payload never includes this, so it's a no-op in
+  // production. Lets a test Purchase show up under Events Manager →
+  // "Probar eventos" instead of mixing into real event data.
+  if (payload.test_event_code) {
+    capiPayload.test_event_code = String(payload.test_event_code);
+  }
+
   const datasetId = env.META_DATASET_ID || DEFAULT_META_DATASET_ID;
   const metaUrl = `https://graph.facebook.com/${META_GRAPH_VERSION}/${datasetId}/events?access_token=${encodeURIComponent(env.META_ACCESS_TOKEN)}`;
 

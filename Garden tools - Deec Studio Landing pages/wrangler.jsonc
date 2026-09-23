@@ -6,9 +6,9 @@
   "name": "garden-tools-by-deecstudio",
   "compatibility_date": "2025-01-01",
   "assets": {
-    // Your site files live inside garden-tools-deec-studio.original/
-    // in the repo, not at the root — this points there directly.
-    "directory": "./garden-tools-deec-studio.original",
+    // Site files (index.html, main.js, lib/, assets/, ...) sit directly
+    // next to this wrangler.jsonc in the repo — no extra subfolder.
+    "directory": ".",
     // Plain static site (no client-side router), so a missing path
     // should get a real 404 response, not be redirected to index.html
     // (that "single-page-application" mode is for React/Vue-style apps).

@@ -414,7 +414,9 @@
       // more than once per open(). Purchase is NOT fired from here or
       // anywhere else in the frontend; it only comes from the
       // server-side Whop webhook once payment.succeeded is confirmed.
-      if (typeof fbq === "function") fbq("track", "InitiateCheckout");
+      try {
+        if (typeof fbq === "function") fbq("track", "InitiateCheckout", { value: 49.99, currency: "USD" });
+      } catch (err) { /* Pixel blocked/failed — modal must still open */ }
     }
     function close() {
       modal.classList.remove("is-open");

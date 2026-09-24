@@ -8,7 +8,7 @@
 
 <!-- Meta Pixel — bootstrap logic lives in lib/meta-pixel.js (kept out of
      this file so no CSP script-src 'unsafe-inline' exception is needed). -->
-<script src="lib/meta-pixel.js?v=202609234"></script>
+<script src="lib/meta-pixel.js?v=202609236"></script>
 <noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=1118290030539871&ev=PageView&noscript=1" alt=""></noscript>
 
 <link rel="preconnect" href="https://whop.com">
@@ -25,7 +25,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&display=swap">
 </noscript>
 
-<link rel="stylesheet" href="styles.css?v=202609234">
+<link rel="stylesheet" href="styles.css?v=202609236">
 
 <link rel="icon" type="image/svg+xml" href="assets/img/logo-icon.svg">
 </head>
@@ -97,7 +97,7 @@
 
 <!-- Floating bubbles — FAQ + WhatsApp contact, fixed to the viewport edge.
      Each carries a temporary tooltip label (auto-shown, auto-hides, re-shown on interaction). -->
-<div class="fab-stack" data-fab-stack>
+<div class="fab-stack">
   <div class="fab-item">
     <span class="fab-tooltip" data-fab-tooltip data-i18n="fab.faqTooltip">Preguntas frecuentes</span>
     <a href="#faq" class="fab-bubble" data-fab-trigger data-i18n-aria="nav.faq" data-i18n-title="nav.faq" aria-label="Preguntas frecuentes" title="Preguntas frecuentes">
@@ -148,14 +148,6 @@
      01 — HERO
      ============================================================ -->
 <section class="hero" id="top">
-  <!-- hero-photo temporarily disabled while a better placement for this
-       image is evaluated — commented out (not just hidden via CSS) so
-       the browser doesn't waste a high-priority fetch on an invisible
-       image. Re-enable by restoring this block and removing
-       `display: none` from .hero-photo in styles.css. -->
-  <!-- <div class="hero-photo" aria-hidden="true">
-    <img src="assets/img/hero-worker.jpg" alt="" loading="eager" fetchpriority="high">
-  </div> -->
   <div class="hero-texture" aria-hidden="true"></div>
   <div class="hero-inner">
 
@@ -345,7 +337,7 @@
      ============================================================ -->
 <section class="benefits-strip">
   <div class="benefits-marquee">
-    <div class="benefits-track" data-marquee>
+    <div class="benefits-track">
       <div class="benefit-item">
         <span class="benefit-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none"><path d="M13 3L4 14H11L10 21L20 9H13L13 3Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
@@ -633,7 +625,7 @@
 <section class="section custom" id="personalizacion">
   <div class="container">
     <div class="pv-track" data-pv-track>
-      <div class="pv-pin" data-pv-pin>
+      <div class="pv-pin">
         <div class="pv-layout">
           <div class="pv-copy">
             <p class="kicker reveal" data-i18n="custom.kicker">Personalización</p>
@@ -797,7 +789,7 @@
      ============================================================ -->
 <section class="section concept" id="concepto">
   <div class="concept-bg" aria-hidden="true">
-    <img src="assets/img/concept-dark.jpg" alt="" loading="lazy">
+    <img src="assets/img/concept-dark.webp" alt="" loading="lazy">
   </div>
   <div class="container container-narrow">
     <h2 class="concept-title reveal" data-split="lines" data-i18n="concept.title">
@@ -913,7 +905,7 @@
       <h2 class="reveal" data-split="lines" data-i18n="faq.title">Antes de <em>comprar</em>.</h2>
     </div>
 
-    <div class="accordion-categories" data-accordion-categories>
+    <div class="accordion-categories">
 
       <div class="accordion-category">
         <button class="accordion-cat-trigger" aria-expanded="false">
@@ -1255,27 +1247,30 @@
      populated and scheduled entirely by initSocialProof() in main.js -->
 <div class="sp-stack" data-sp-stack aria-live="polite"></div>
 
-<!-- Checkout modal — every "Comprar ahora" button opens this instead of
-     navigating away, embedding Whop's own hosted checkout page in an
-     iframe. Its origin (whop.com) is the one already approved for
-     Apple Pay/Google Pay — the js.whop.cloud Elements widget was
-     mounted on our own origin instead, which isn't approved for
-     Google Pay (Apple Pay only needs the merchant-domain file we
-     already verify), so its wallet button stayed hidden regardless of
-     any header fix. Embedding whop.com's checkout keeps the buyer
-     inside this modal (no redirect away from the page). -->
+<!-- Checkout modal — opened by every [data-checkout-cta]; embeds Whop's hosted
+     checkout in an iframe (src is set by main.js, one plan per language).
+     data-state on #whop-checkout drives the loading / error overlays. -->
 <div class="checkout-modal" data-checkout-modal hidden>
   <div class="checkout-modal-backdrop" data-checkout-modal-backdrop></div>
   <div class="checkout-modal-panel" role="dialog" aria-modal="true" aria-label="Checkout">
-    <button type="button" class="checkout-modal-close" data-checkout-modal-close aria-label="Cerrar">&times;</button>
-    <div id="whop-checkout">
+    <button type="button" class="checkout-modal-close" data-checkout-modal-close data-i18n-aria="checkout.close" aria-label="Cerrar">&times;</button>
+    <div id="whop-checkout" data-state="loading" aria-busy="true">
       <iframe title="Checkout" allow="payment"></iframe>
+      <div class="checkout-status checkout-loading" role="status" aria-live="polite">
+        <span class="checkout-spinner" aria-hidden="true"></span>
+        <p class="checkout-status-title" data-i18n="checkout.loading">Cargando...</p>
+        <p class="checkout-status-sub" data-i18n="checkout.wait">Espera un momento</p>
+      </div>
+      <div class="checkout-status checkout-error" role="alert">
+        <p class="checkout-status-title" data-i18n="checkout.error">No pudimos cargar el pago. Revisa tu conexión e inténtalo de nuevo.</p>
+        <button type="button" class="btn btn-primary" data-checkout-retry data-i18n="checkout.retry">Reintentar</button>
+      </div>
     </div>
   </div>
 </div>
 
-<script defer src="lib/manifest.js?v=202609234"></script>
-<script defer src="lib/i18n.js?v=202609234"></script>
-<script defer src="main.js?v=202609234"></script>
+<script defer src="lib/manifest.js?v=202609236"></script>
+<script defer src="lib/i18n.js?v=202609236"></script>
+<script defer src="main.js?v=202609236"></script>
 </body>
 </html>

@@ -379,7 +379,7 @@
   }
 
   /* ---------------------------------------------------------
-     Toast helper — shared by checkout + WhatsApp placeholders
+     Toast helper — used by the WhatsApp placeholder guard
      --------------------------------------------------------- */
   var toastTimer = null;
   function showToast(html) {
@@ -393,10 +393,14 @@
   }
 
   /* ---------------------------------------------------------
-     Checkout CTA — every [data-checkout-cta] button opens the
-     checkout modal (the embedded Whop widget) instead of following
-     its href. The widget itself is mounted once, elsewhere, by the
-     Whop SDK script in index.html — this only owns show/hide.
+     Checkout — every [data-checkout-cta] opens a modal that embeds
+     Whop's hosted checkout in an iframe. There is one plan per site
+     language. The iframe is loaded ahead of the click (browser idle, or
+     first hover/touch on a buy button); if the click arrives before it
+     is ready the modal opens straight away showing a real loading
+     state (data-state on #whop-checkout: loading | ready | error) that
+     ends when the iframe fires "load", or turns into an error with a
+     retry button if it can't load.
      --------------------------------------------------------- */
   var syncCheckoutFrame = null; // set by initCheckoutModal; re-points the iframe on language change
 
@@ -404,59 +408,81 @@
     var modal = $("[data-checkout-modal]");
     var backdrop = $("[data-checkout-modal-backdrop]");
     var closeBtn = $("[data-checkout-modal-close]");
+    var retryBtn = $("[data-checkout-retry]");
     var triggers = $$("[data-checkout-cta]");
-    if (!modal || !triggers.length) return;
+    var frame = modal && $("iframe", modal);
+    var holder = modal && $("#whop-checkout", modal);
+    if (!modal || !frame || !holder || !triggers.length) return;
 
-    // One Whop plan per language — same plain-iframe checkout, only the
-    // plan id in the URL changes. The iframe has no src in the HTML: it is
-    // pointed at the right plan and loaded in the background (idle time,
-    // or the first hover/touch on a buy button) so the modal opens on an
-    // already-loaded checkout instead of starting the load on click.
-    var frame = $("iframe", modal);
-    var holder = $("#whop-checkout", modal);
     var PLAN_BY_LANG = { es: "plan_Ddkjmd8N0T9vu", en: "plan_Hjt2ymYXV8X4N" };
+    var LOAD_TIMEOUT_MS = 15000; // failure detection only — never delays a checkout that loads
+    var loadTimer = null;
+    var closeTimer = null;
+    var lastFocus = null;
+    var isOpen = false;
+    var warmed = false;
 
-    function loadCheckout() {
-      if (!frame) return;
+    function setState(state) {
+      holder.setAttribute("data-state", state);
+      holder.setAttribute("aria-busy", String(state === "loading"));
+    }
+
+    function loadCheckout(force) {
       var src = "https://whop.com/checkout/" + (PLAN_BY_LANG[currentLang] || PLAN_BY_LANG.es);
-      if (frame.getAttribute("src") === src) return;
-      if (holder) holder.classList.remove("is-loaded");
+      if (!force && frame.getAttribute("src") === src) return;
+      clearTimeout(loadTimer);
+      if (navigator.onLine === false) { setState("error"); return; }
+      setState("loading");
+      loadTimer = setTimeout(function () { setState("error"); }, LOAD_TIMEOUT_MS);
       frame.setAttribute("src", src);
     }
-    if (frame) {
-      frame.addEventListener("load", function () {
-        if (frame.getAttribute("src") && holder) holder.classList.add("is-loaded");
-      });
-    }
-    syncCheckoutFrame = loadCheckout;
+    syncCheckoutFrame = function () { loadCheckout(false); };
 
-    var warmed = false;
+    frame.addEventListener("load", function () {
+      if (!frame.getAttribute("src")) return;
+      clearTimeout(loadTimer);
+      setState("ready");
+    });
+
     function warm() {
       if (warmed) return;
       warmed = true;
-      loadCheckout();
+      loadCheckout(false);
     }
-    if ("requestIdleCallback" in window) window.addEventListener("load", function () { requestIdleCallback(warm, { timeout: 4000 }); });
-    else window.addEventListener("load", function () { setTimeout(warm, 2500); });
+    window.addEventListener("load", function () {
+      if ("requestIdleCallback" in window) requestIdleCallback(warm, { timeout: 4000 });
+      else setTimeout(warm, 2500);
+    });
 
     function open(e) {
       if (e) e.preventDefault();
-      loadCheckout();
-      modal.hidden = false;
-      document.body.style.overflow = "hidden";
-      requestAnimationFrame(function () { modal.classList.add("is-open"); });
-      // Real checkout intent — never fired on page load, never fired
-      // more than once per open(). Purchase is NOT fired from here or
-      // anywhere else in the frontend; it only comes from the
-      // server-side Whop webhook once payment.succeeded is confirmed.
+      if (isOpen) return; // repeated clicks / several CTAs: one opening, one InitiateCheckout
+      isOpen = true;
+      clearTimeout(closeTimer);
+      lastFocus = document.activeElement;
+
+      // Real checkout intent. Purchase is NOT fired from the frontend;
+      // it only comes from the server-side Whop webhook (payment.succeeded).
       try {
         if (typeof fbq === "function") fbq("track", "InitiateCheckout", { value: 49.99, currency: "USD" });
       } catch (err) { /* Pixel blocked/failed — modal must still open */ }
+
+      loadCheckout(holder.getAttribute("data-state") === "error");
+      modal.hidden = false;
+      document.body.style.overflow = "hidden";
+      requestAnimationFrame(function () {
+        modal.classList.add("is-open");
+        if (closeBtn) closeBtn.focus({ preventScroll: true });
+      });
     }
+
     function close() {
+      if (!isOpen) return;
+      isOpen = false;
       modal.classList.remove("is-open");
       document.body.style.overflow = "";
-      setTimeout(function () { modal.hidden = true; }, 300);
+      closeTimer = setTimeout(function () { modal.hidden = true; }, 300);
+      if (lastFocus && lastFocus.focus) lastFocus.focus({ preventScroll: true });
     }
 
     triggers.forEach(function (btn) {
@@ -466,8 +492,12 @@
     });
     if (backdrop) backdrop.addEventListener("click", close);
     if (closeBtn) closeBtn.addEventListener("click", close);
+    if (retryBtn) retryBtn.addEventListener("click", function () { loadCheckout(true); });
+    window.addEventListener("online", function () {
+      if (holder.getAttribute("data-state") === "error" && isOpen) loadCheckout(true);
+    });
     document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape" && !modal.hidden) close();
+      if (e.key === "Escape") close();
     });
   }
 
@@ -912,7 +942,6 @@
     safe(initStepsCarousel, "initStepsCarousel");
     safe(initPersonalizacion, "initPersonalizacion");
     safe(initHeroParallax, "initHeroParallax");
-    document.documentElement.classList.add("is-ready");
   }
 
   if (document.readyState === "loading") {

@@ -398,6 +398,8 @@
      its href. The widget itself is mounted once, elsewhere, by the
      Whop SDK script in index.html — this only owns show/hide.
      --------------------------------------------------------- */
+  var syncCheckoutFrame = null; // set by initCheckoutModal; re-points the iframe on language change
+
   function initCheckoutModal() {
     var modal = $("[data-checkout-modal]");
     var backdrop = $("[data-checkout-modal-backdrop]");
@@ -406,16 +408,40 @@
     if (!modal || !triggers.length) return;
 
     // One Whop plan per language — same plain-iframe checkout, only the
-    // plan id in the URL changes. Set on open so it follows the toggle.
+    // plan id in the URL changes. The iframe has no src in the HTML: it is
+    // pointed at the right plan and loaded in the background (idle time,
+    // or the first hover/touch on a buy button) so the modal opens on an
+    // already-loaded checkout instead of starting the load on click.
     var frame = $("iframe", modal);
+    var holder = $("#whop-checkout", modal);
     var PLAN_BY_LANG = { es: "plan_Ddkjmd8N0T9vu", en: "plan_Hjt2ymYXV8X4N" };
+
+    function loadCheckout() {
+      if (!frame) return;
+      var src = "https://whop.com/checkout/" + (PLAN_BY_LANG[currentLang] || PLAN_BY_LANG.es);
+      if (frame.getAttribute("src") === src) return;
+      if (holder) holder.classList.remove("is-loaded");
+      frame.setAttribute("src", src);
+    }
+    if (frame) {
+      frame.addEventListener("load", function () {
+        if (frame.getAttribute("src") && holder) holder.classList.add("is-loaded");
+      });
+    }
+    syncCheckoutFrame = loadCheckout;
+
+    var warmed = false;
+    function warm() {
+      if (warmed) return;
+      warmed = true;
+      loadCheckout();
+    }
+    if ("requestIdleCallback" in window) window.addEventListener("load", function () { requestIdleCallback(warm, { timeout: 4000 }); });
+    else window.addEventListener("load", function () { setTimeout(warm, 2500); });
 
     function open(e) {
       if (e) e.preventDefault();
-      if (frame) {
-        var src = "https://whop.com/checkout/" + (PLAN_BY_LANG[currentLang] || PLAN_BY_LANG.es);
-        if (frame.getAttribute("src") !== src) frame.setAttribute("src", src);
-      }
+      loadCheckout();
       modal.hidden = false;
       document.body.style.overflow = "hidden";
       requestAnimationFrame(function () { modal.classList.add("is-open"); });
@@ -433,7 +459,11 @@
       setTimeout(function () { modal.hidden = true; }, 300);
     }
 
-    triggers.forEach(function (btn) { btn.addEventListener("click", open); });
+    triggers.forEach(function (btn) {
+      btn.addEventListener("click", open);
+      btn.addEventListener("pointerenter", warm, { once: true });
+      btn.addEventListener("touchstart", warm, { once: true, passive: true });
+    });
     if (backdrop) backdrop.addEventListener("click", close);
     if (closeBtn) closeBtn.addEventListener("click", close);
     document.addEventListener("keydown", function (e) {
@@ -783,17 +813,32 @@
       try { localStorage.setItem(LANG_KEY, lang); } catch (e) {}
     }
 
+    if (syncCheckoutFrame) syncCheckoutFrame();
+
     syncNavHeight();
     syncCtaBarHeight();
+  }
+
+  // Saved manual choice wins; otherwise the first browser language we
+  // support (es / en) in the visitor's preference order; else English.
+  function detectLang() {
+    var stored = null;
+    try { stored = localStorage.getItem(LANG_KEY); } catch (e) {}
+    if (stored === "en" || stored === "es") return stored;
+    var prefs = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || "en"];
+    for (var i = 0; i < prefs.length; i++) {
+      var code = String(prefs[i]).toLowerCase();
+      if (code.indexOf("en") === 0) return "en";
+      if (code.indexOf("es") === 0) return "es";
+    }
+    return "en"; // browser set to some other language → English
   }
 
   function initLangToggle() {
     var group = $("[data-lang-toggle]");
     if (!group) return;
 
-    var stored = "es";
-    try { stored = localStorage.getItem(LANG_KEY) || "es"; } catch (e) {}
-    if (stored !== "en") stored = "es";
+    var stored = detectLang();
 
     if (stored !== "es") applyLanguage(stored, { silent: true });
     else {
@@ -839,7 +884,14 @@
     update();
   }
 
+  // Third-party font CSS is declared media="print" in the HTML so it never
+  // blocks the first paint; this turns it on once the page is parsed.
+  function enableAsyncFonts() {
+    $$("link[data-async-font]").forEach(function (l) { l.media = "all"; });
+  }
+
   function boot() {
+    safe(enableAsyncFonts, "enableAsyncFonts");
     safe(initSplitText, "initSplitText");
     safe(initLangToggle, "initLangToggle");
     safe(initNav, "initNav");

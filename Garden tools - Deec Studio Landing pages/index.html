@@ -8,16 +8,24 @@
 
 <!-- Meta Pixel — bootstrap logic lives in lib/meta-pixel.js (kept out of
      this file so no CSP script-src 'unsafe-inline' exception is needed). -->
-<script src="lib/meta-pixel.js?v=202609232"></script>
+<script src="lib/meta-pixel.js?v=202609234"></script>
 <noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=1118290030539871&ev=PageView&noscript=1" alt=""></noscript>
 
+<link rel="preconnect" href="https://whop.com">
 <link rel="preconnect" href="https://api.fontshare.com">
-<link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&f[]=switzer@400,500,600,700,800&display=swap">
+<!-- Font CSS from third parties is fetched right away but does NOT block the
+     first paint: media="print" is switched to "all" by main.js (no inline
+     handler, so the CSP stays strict). display=swap shows text immediately. -->
+<link rel="stylesheet" data-async-font media="print" href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&f[]=switzer@400,500,600,700,800&display=swap">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" data-async-font media="print" href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&display=swap">
+<noscript>
+<link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&f[]=switzer@400,500,600,700,800&display=swap">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&display=swap">
+</noscript>
 
-<link rel="stylesheet" href="styles.css?v=202609232">
+<link rel="stylesheet" href="styles.css?v=202609234">
 
 <link rel="icon" type="image/svg+xml" href="assets/img/logo-icon.svg">
 </head>
@@ -1261,13 +1269,13 @@
   <div class="checkout-modal-panel" role="dialog" aria-modal="true" aria-label="Checkout">
     <button type="button" class="checkout-modal-close" data-checkout-modal-close aria-label="Cerrar">&times;</button>
     <div id="whop-checkout">
-      <iframe src="https://whop.com/checkout/plan_Ddkjmd8N0T9vu" title="Checkout" allow="payment"></iframe>
+      <iframe title="Checkout" allow="payment"></iframe>
     </div>
   </div>
 </div>
 
-<script defer src="lib/manifest.js?v=202609232"></script>
-<script defer src="lib/i18n.js?v=202609232"></script>
-<script defer src="main.js?v=202609232"></script>
+<script defer src="lib/manifest.js?v=202609234"></script>
+<script defer src="lib/i18n.js?v=202609234"></script>
+<script defer src="main.js?v=202609234"></script>
 </body>
 </html>

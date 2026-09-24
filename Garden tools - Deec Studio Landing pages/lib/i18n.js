@@ -253,6 +253,11 @@
 
       "footer.copyText": "Todos los derechos reservados.",
 
+      "checkout.close": "Cerrar",
+      "checkout.loading": "Cargando...",
+      "checkout.wait": "Espera un momento",
+      "checkout.error": "No pudimos cargar el pago. Revisa tu conexión e inténtalo de nuevo.",
+      "checkout.retry": "Reintentar",
       "toast.whatsappNotConfigured": "<strong>WhatsApp por configurar.</strong> Agrega tu número real en <code>lib/manifest.js</code> (marcador actual: <code>PENDIENTE_WHATSAPP_NUMBER</code>).",
       "whatsapp.message": "Hola, tengo una duda sobre el Cotizador Web Personalizado para Jardineros y Profesionales de Mantenimiento de Jardines.",
 
@@ -515,6 +520,11 @@
 
       "footer.copyText": "All rights reserved.",
 
+      "checkout.close": "Close",
+      "checkout.loading": "Loading...",
+      "checkout.wait": "Please wait a moment",
+      "checkout.error": "We couldn't load the checkout. Check your connection and try again.",
+      "checkout.retry": "Try again",
       "toast.whatsappNotConfigured": "<strong>WhatsApp not set up yet.</strong> Add your real number in <code>lib/manifest.js</code> (current placeholder: <code>PENDIENTE_WHATSAPP_NUMBER</code>).",
       "whatsapp.message": "Hi, I have a question about the Personalized Web Quoting Tool for Gardeners and Garden Maintenance Professionals.",
 

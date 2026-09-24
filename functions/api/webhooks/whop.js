@@ -140,11 +140,17 @@ export async function handleWhopWebhook(request, env, ctx) {
     userData.em = [await sha256Hex(String(buyerEmail).trim().toLowerCase())];
   }
 
+  // Real payment time (data.paid_at, ISO string → unix seconds). Falls
+  // back to the webhook's own timestamp if paid_at is missing/invalid.
+  // Note: Meta rejects events older than 7 days.
+  const paidAtSeconds = data.paid_at ? Math.floor(Date.parse(data.paid_at) / 1000) : NaN;
+  const eventTimeSeconds = Number.isFinite(paidAtSeconds) ? paidAtSeconds : tsSeconds;
+
   const capiPayload = {
     data: [
       {
         event_name: "Purchase",
-        event_time: tsSeconds, // Whop's own webhook-timestamp — authoritative, already validated above
+        event_time: eventTimeSeconds,
         event_id: String(paymentId),
         action_source: "website",
         user_data: userData,
@@ -183,12 +189,18 @@ export async function handleWhopWebhook(request, env, ctx) {
     return new Response("Meta CAPI request failed", { status: 502 });
   }
 
+  const metaBodyText = await metaResponse.text();
+
   if (!metaResponse.ok) {
-    const errorText = await metaResponse.text();
-    console.error("Meta CAPI error:", metaResponse.status, errorText);
+    console.error("Meta CAPI error:", metaResponse.status, metaBodyText);
     // Do NOT mark as processed — allow Whop to retry the webhook.
     return new Response("Meta CAPI error", { status: 502 });
   }
+
+  // Meta's success body ({"events_received":1,"messages":[],"fbtrace_id":"..."})
+  // contains no secrets — logged so Observability shows proof Meta
+  // actually received the event, and whether it attached any warnings.
+  console.log("Meta CAPI accepted Purchase:", metaResponse.status, metaBodyText, "test_event_code:", capiPayload.test_event_code || "(none — counts as a real event)");
 
   // Only mark as processed after Meta confirms success.
   await env.WHOP_PURCHASES.put(kvKey, JSON.stringify({ processedAt: Date.now(), paymentId }), {

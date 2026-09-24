@@ -1,0 +1,29 @@
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Claude Code local dev-server config (used only to preview locally, not part of the deployed site)
+.claude/
+
+# Local env / secrets — Worker secrets (WHOP_WEBHOOK_SECRET, META_ACCESS_TOKEN) live only
+# in Cloudflare and must never be committed. .dev.vars is wrangler's local secrets file.
+.dev.vars
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Archives / backups accidentally left in the folder
+*.bak
+*.tmp
+*.zip

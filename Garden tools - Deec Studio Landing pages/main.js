@@ -405,8 +405,17 @@
     var triggers = $$("[data-checkout-cta]");
     if (!modal || !triggers.length) return;
 
+    // One Whop plan per language — same plain-iframe checkout, only the
+    // plan id in the URL changes. Set on open so it follows the toggle.
+    var frame = $("iframe", modal);
+    var PLAN_BY_LANG = { es: "plan_Ddkjmd8N0T9vu", en: "plan_Hjt2ymYXV8X4N" };
+
     function open(e) {
       if (e) e.preventDefault();
+      if (frame) {
+        var src = "https://whop.com/checkout/" + (PLAN_BY_LANG[currentLang] || PLAN_BY_LANG.es);
+        if (frame.getAttribute("src") !== src) frame.setAttribute("src", src);
+      }
       modal.hidden = false;
       document.body.style.overflow = "hidden";
       requestAnimationFrame(function () { modal.classList.add("is-open"); });
@@ -570,54 +579,6 @@
     var el = $("[data-year]");
     if (!el) return;
     el.textContent = new Date().getFullYear();
-  }
-
-  /* ---------------------------------------------------------
-     Limited-time offer countdown — one shared 25-minute window,
-     persisted in localStorage so every instance on the page (and
-     a returning visitor within the window) stays in sync. Once it
-     reaches zero it quietly starts a fresh 25 minutes.
-     --------------------------------------------------------- */
-  var COUNTDOWN_KEY = "gt-offer-deadline";
-  var COUNTDOWN_MINUTES = 25;
-
-  function initCountdown() {
-    var targets = $$("[data-countdown]");
-    var mmTargets = $$("[data-countdown-mm]");
-    var ssTargets = $$("[data-countdown-ss]");
-    if (!targets.length && !mmTargets.length && !ssTargets.length) return;
-
-    function readDeadline() {
-      var stored = null;
-      try { stored = parseInt(localStorage.getItem(COUNTDOWN_KEY), 10); } catch (e) {}
-      if (!stored || isNaN(stored) || stored <= Date.now()) {
-        stored = Date.now() + COUNTDOWN_MINUTES * 60 * 1000;
-        try { localStorage.setItem(COUNTDOWN_KEY, String(stored)); } catch (e) {}
-      }
-      return stored;
-    }
-
-    var deadline = readDeadline();
-
-    function render() {
-      var remaining = deadline - Date.now();
-      if (remaining <= 0) {
-        deadline = readDeadline();
-        remaining = deadline - Date.now();
-      }
-      var totalSeconds = Math.max(0, Math.floor(remaining / 1000));
-      var mm = Math.floor(totalSeconds / 60);
-      var ss = totalSeconds % 60;
-      var mmStr = mm < 10 ? "0" + mm : String(mm);
-      var ssStr = ss < 10 ? "0" + ss : String(ss);
-      var label = mmStr + ":" + ssStr;
-      targets.forEach(function (el) { el.textContent = label; });
-      mmTargets.forEach(function (el) { el.textContent = mmStr; });
-      ssTargets.forEach(function (el) { el.textContent = ssStr; });
-    }
-
-    render();
-    setInterval(render, 1000);
   }
 
   /* ---------------------------------------------------------
@@ -895,7 +856,6 @@
     safe(initWhatsapp, "initWhatsapp");
     safe(initSocialProof, "initSocialProof");
     safe(initYear, "initYear");
-    safe(initCountdown, "initCountdown");
     safe(initTransformShowcase, "initTransformShowcase");
     safe(initStepsCarousel, "initStepsCarousel");
     safe(initPersonalizacion, "initPersonalizacion");

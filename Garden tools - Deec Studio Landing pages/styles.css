@@ -507,25 +507,8 @@ em { font-style: normal; color: var(--moss); font-weight: inherit; }
 }
 .cta-bar .btn { flex-shrink: 0; }
 
-.urgency-bar {
-  margin-bottom: 0;
-  flex-shrink: 0;
-  gap: .5rem;
-}
-.urgency-bar .urgency-box { padding: .2rem .45rem; }
-.urgency-bar .urgency-box-time { font-size: .8rem; }
-.urgency-bar .urgency-box-labels { font-size: .44rem; gap: .45rem; }
-
 @media (max-width: 539px) {
   .cta-bar-info { display: none; }
-  /* Stack the timer above the button instead of squeezing it in next
-     to it — wrapping the row and giving the timer its own full-width
-     line is what actually makes room for the "Oferta por tiempo
-     limitado" label on narrow screens. */
-  .cta-bar-inner { flex-wrap: wrap; row-gap: .6rem; }
-  .urgency-bar { flex: 1 1 100%; order: -1; justify-content: center; }
-  .urgency-bar .urgency-box { padding: .16rem .38rem; }
-  .urgency-bar .urgency-box-time { font-size: .72rem; }
   .cta-bar .btn { width: 100%; }
 }
 
@@ -666,48 +649,6 @@ em { font-style: normal; color: var(--moss); font-weight: inherit; }
   .trust-row-simple .trust-icon { width: 9px; height: 9px; }
 }
 
-/* Urgency row — hero variant: label on the left, boxed time on the
-   right, sitting above the price block. */
-.urgency-hero {
-  margin-bottom: 1rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: .6rem;
-}
-.urgency-hero .urgency-label {
-  font-size: .64rem;
-  font-weight: var(--fw-bold);
-  letter-spacing: .03em;
-  text-transform: uppercase;
-  color: var(--accent-2);
-}
-.urgency-box {
-  background: rgba(var(--accent-rgb), 0.08);
-  border-radius: 4px;
-  padding: .28rem .55rem;
-  text-align: center;
-  flex-shrink: 0;
-}
-.urgency-box-time {
-  font-family: var(--sans);
-  font-weight: var(--fw-black);
-  font-size: .92rem;
-  color: var(--accent-2);
-  font-variant-numeric: tabular-nums;
-}
-.urgency-box-colon { margin: 0 .1rem; }
-.urgency-box-labels {
-  display: flex;
-  justify-content: space-between;
-  gap: .55rem;
-  margin-top: .05rem;
-  font-size: .5rem;
-  letter-spacing: .05em;
-  text-transform: uppercase;
-  color: var(--accent-2);
-  opacity: .7;
-}
 /* Trust row — icon + label, replaces plain "·"-separated microcopy under CTAs */
 .trust-row {
   margin-top: 1rem;
@@ -1649,39 +1590,6 @@ em { font-style: normal; color: var(--moss); font-weight: inherit; }
   padding: .22rem .5rem;
   border-radius: 2px;
   white-space: nowrap;
-}
-
-/* Urgency / countdown — small, quiet, functional. Not a flashing banner. */
-.urgency {
-  display: inline-flex;
-  align-items: center;
-  gap: .45rem;
-  margin-top: 1rem;
-  font-family: var(--sans);
-  font-size: .78rem;
-  font-weight: var(--fw-semibold);
-  color: var(--accent-2);
-}
-.urgency-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex-shrink: 0;
-  animation: urgencyPulse 1.8s ease-in-out infinite;
-}
-@keyframes urgencyPulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: .4; transform: scale(0.7); }
-}
-.urgency-caption {
-  margin-top: .4rem;
-  font-size: .78rem;
-  color: var(--ink-mute);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .urgency-dot { animation: none; }
 }
 
 .offer-price {

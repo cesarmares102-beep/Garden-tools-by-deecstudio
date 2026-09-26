@@ -18,10 +18,16 @@
 //   payload.data.settlement_amount → number    (Purchase value)
 //   payload.data.currency     → "usd" etc.     (Purchase currency, uppercased)
 //   payload.data.user.email   → buyer's email  (hashed into user_data.em)
+//   Also read for matching (see buildUserData): data.user.name / .id,
+//   data.billing_address.{name,city,state,postal_code,country},
+//   data.customer_phone | membership.phone_number | member.phone.
+//   The webhook's own IP / User-Agent belong to Whop, NOT the buyer,
+//   so they are never sent as client_ip_address / client_user_agent.
 
 const MAX_TIMESTAMP_SKEW_SECONDS = 5 * 60; // Svix's own recommended tolerance
 const META_GRAPH_VERSION = "v21.0"; // confirm this is still a supported version when you deploy
 const DEFAULT_META_DATASET_ID = "1118290030539871"; // fallback if env.META_DATASET_ID isn't set
+const EVENT_SOURCE_URL = "https://deecstudio-gardentools.online/"; // production landing page
 
 function bytesToBase64(bytes) {
   let binary = "";
@@ -32,6 +38,65 @@ function bytesToBase64(bytes) {
 async function sha256Hex(message) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(message));
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Meta user_data normalization — applied BEFORE hashing, per Meta's
+// customer-information-parameters spec. Each returns "" when the value
+// is missing/unusable, and empty values are never sent.
+const lower = (v) => String(v == null ? "" : v).trim().toLowerCase();
+const lettersOnly = (v) => lower(v).replace(/[^\p{L}\p{M}]/gu, "");
+const lettersAndDigits = (v) => lower(v).replace(/[^\p{L}\p{M}\p{N}]/gu, "");
+
+function splitName(fullName) {
+  const parts = String(fullName == null ? "" : fullName).trim().split(/\s+/).filter(Boolean);
+  return { first: parts[0] || "", last: parts.length > 1 ? parts[parts.length - 1] : "" };
+}
+
+// Only accepts a number that already carries its country code ("+..."),
+// so nothing is guessed. Result: digits only, 8–15 long (E.164 range).
+function normalizePhone(value) {
+  const raw = String(value == null ? "" : value).trim();
+  if (!raw.startsWith("+")) return "";
+  const digits = raw.replace(/\D/g, "");
+  return digits.length >= 8 && digits.length <= 15 ? digits : "";
+}
+
+function normalizeCountry(value) {
+  const code = lower(value);
+  return /^[a-z]{2}$/.test(code) ? code : "";
+}
+
+function normalizeZip(value, country) {
+  const zip = lower(value).replace(/[\s-]/g, "");
+  return country === "us" ? zip.slice(0, 5) : zip;
+}
+
+// Builds user_data from the fields Whop's payment.succeeded payload
+// already carries. Every field is optional: missing → omitted.
+async function buildUserData(data) {
+  const user = data.user || {};
+  const billing = data.billing_address || {};
+  const country = normalizeCountry(billing.country);
+  const { first, last } = splitName(user.name || billing.name);
+  const phone = normalizePhone(data.customer_phone || (data.membership && data.membership.phone_number) || (data.member && data.member.phone));
+
+  const fields = {
+    em: lower(user.email),
+    fn: lettersOnly(first),
+    ln: lettersOnly(last),
+    ph: phone,
+    ct: lettersAndDigits(billing.city),
+    st: lettersAndDigits(billing.state),
+    zp: normalizeZip(billing.postal_code, country),
+    country,
+    external_id: String(user.id == null ? "" : user.id).trim(),
+  };
+
+  const userData = {};
+  for (const key of Object.keys(fields)) {
+    if (fields[key]) userData[key] = [await sha256Hex(fields[key])];
+  }
+  return userData;
 }
 
 // Constant-time-ish string compare — avoids leaking how many leading
@@ -123,7 +188,6 @@ export async function handleWhopWebhook(request, env, ctx) {
   const paymentId = data.id;
   const amount = data.settlement_amount;
   const currency = data.currency;
-  const buyerEmail = data.user && data.user.email;
 
   if (!paymentId || amount == null || !currency) {
     return new Response("Missing required payment fields (id/settlement_amount/currency)", { status: 400 });
@@ -135,10 +199,7 @@ export async function handleWhopWebhook(request, env, ctx) {
     return new Response("Already processed", { status: 200 });
   }
 
-  const userData = {};
-  if (buyerEmail) {
-    userData.em = [await sha256Hex(String(buyerEmail).trim().toLowerCase())];
-  }
+  const userData = await buildUserData(data);
 
   // Real payment time (data.paid_at, ISO string → unix seconds). Falls
   // back to the webhook's own timestamp if paid_at is missing/invalid.
@@ -153,6 +214,7 @@ export async function handleWhopWebhook(request, env, ctx) {
         event_time: eventTimeSeconds,
         event_id: String(paymentId),
         action_source: "website",
+        event_source_url: EVENT_SOURCE_URL,
         user_data: userData,
         custom_data: {
           value: Number(amount),
